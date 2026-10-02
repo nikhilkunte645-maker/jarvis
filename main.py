@@ -1,14 +1,14 @@
+import re
 import sys
 import json
 import argparse
-import logging
 import requests
 from pathlib import Path
+from loguru import logger
 
 from jarvis.core.config_loader import cfg
 from jarvis.core.orchestrator import Orchestrator
 
-logger = logging.getLogger(__name__)
 
 def check_ollama(model: str):
     """Check if Ollama is reachable."""
@@ -17,8 +17,23 @@ def check_ollama(model: str):
         if resp.status_code != 200:
             raise requests.RequestException("Non-200 response")
     except requests.RequestException:
-        print(f"Error: Ollama is not reachable at http://localhost:11434.")
+        print("Error: Ollama is not reachable at http://localhost:11434.")
         sys.exit(1)
+
+
+def print_dry_run(orch, command: str):
+    cmd = orch.brain.parse(command)
+    intent_str = str(cmd.intent.value) if hasattr(cmd.intent, "value") else str(cmd.intent)
+    target_str = str(cmd.target.value) if hasattr(cmd.target, "value") else str(cmd.target)
+    print(json.dumps({
+        "intent": intent_str,
+        "target": target_str,
+        "action": cmd.action,
+        "parameters": cmd.parameters,
+        "confidence": cmd.confidence
+    }, indent=2))
+    print(f"WOULD RUN: {cmd.action} on {target_str}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="JARVIS Main Entrypoint")
@@ -30,23 +45,20 @@ def main():
 
     args = parser.parse_args()
 
-    # If config override is provided, update and reload
     if args.config:
         cfg._path = Path(args.config)
         cfg.reload()
-        
+
     if args.laptop_only:
-        # Prevent phone bridge reconnections
         if "phone" not in cfg._data:
             cfg._data["phone"] = {}
         cfg._data["phone"]["enabled"] = False
 
-    # Ollama check
     model = cfg.get("brain.model", default="llama3.2")
     check_ollama(model)
 
     orch = Orchestrator()
-    
+
     original_connect = orch.phone.connect
 
     def safe_connect():
@@ -62,12 +74,9 @@ def main():
             return False
 
     orch.phone.connect = safe_connect
-    
-    # setup handles graceful phone/adb failure automatically with safe_connect
     orch.setup()
 
     if args.text:
-        # Text loop
         while True:
             try:
                 user_input = input("You> ").strip()
@@ -75,70 +84,48 @@ def main():
                     continue
                 if user_input.lower() in ("quit", "exit"):
                     break
-                
+
                 if args.dry_run:
-                    cmd = orch.brain.parse(user_input)
-                    # Convert enums to strings
-                    intent_str = str(cmd.intent.value) if hasattr(cmd.intent, "value") else str(cmd.intent)
-                    target_str = str(cmd.target.value) if hasattr(cmd.target, "value") else str(cmd.target)
-                    print(json.dumps({
-                        "intent": intent_str,
-                        "target": target_str,
-                        "action": cmd.action,
-                        "parameters": cmd.parameters,
-                        "confidence": cmd.confidence
-                    }, indent=2))
-                    print(f"WOULD RUN: {cmd.action} on {target_str}")
+                    print_dry_run(orch, user_input)
                 else:
                     orch.process(user_input)
             except KeyboardInterrupt:
                 break
     else:
-        # Voice mode loop
         from jarvis.audio.pipeline import AudioPipeline
-        
+
         stt_model = cfg.get("audio.stt.model_size", default="base.en")
         wake_word = cfg.get("audio.wake_word.keyword", default="jarvis").lower()
-        
+
+        wake_re = re.compile(
+            rf"^\W*(?:hey|ok|okay)?\W*(?:{re.escape(wake_word)}|travis|jarvus|jervis|jairus|jarvas|jarves|jervas|gervais)\b[\s,.:;!?-]*",
+            re.IGNORECASE,
+        )
+
         def on_transcription(text: str):
             text = text.strip()
             if not text:
                 return
-                
-            # Check wake word on transcribed text
-            lower_text = text.lower()
-            # Handle cases like "Jarvis, open notepad" or "Jarvis open notepad"
-            if not lower_text.startswith(wake_word):
+
+            m = wake_re.match(text)
+            if not m:
                 logger.info(f"Ignored (no wake word): {text}")
                 return
-                
-            # Strip the wake word
-            command = text[len(wake_word):].strip()
-            # Strip leading punctuation if present
-            while command and command[0] in ".,;:!?- ":
-                command = command[1:].strip()
-                
+
+            command = text[m.end():].strip()
             if not command:
                 return
-                
+
+            logger.info(f"Command: {command}")
             if args.dry_run:
-                cmd = orch.brain.parse(command)
-                intent_str = str(cmd.intent.value) if hasattr(cmd.intent, "value") else str(cmd.intent)
-                target_str = str(cmd.target.value) if hasattr(cmd.target, "value") else str(cmd.target)
-                print(json.dumps({
-                    "intent": intent_str,
-                    "target": target_str,
-                    "action": cmd.action,
-                    "parameters": cmd.parameters,
-                    "confidence": cmd.confidence
-                }, indent=2))
-                print(f"WOULD RUN: {cmd.action} on {target_str}")
+                print_dry_run(orch, command)
             else:
                 orch.process(command)
 
         pipeline = AudioPipeline(stt_model=stt_model, on_transcription=on_transcription)
         print(f"Voice mode activated. Listening for '{wake_word}'...")
         pipeline.run()
+
 
 if __name__ == "__main__":
     main()
