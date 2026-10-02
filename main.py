@@ -94,11 +94,51 @@ def main():
             except KeyboardInterrupt:
                 break
     else:
-        # Default voice mode loop
-        print("Voice mode activated (Not implemented in this skeleton yet).")
-        if args.dry_run:
-            print("Dry-run not implemented for voice loop.")
-        sys.exit(0)
+        # Voice mode loop
+        from jarvis.audio.pipeline import AudioPipeline
+        
+        stt_model = cfg.get("audio.stt.model_size", default="base.en")
+        wake_word = cfg.get("audio.wake_word.keyword", default="jarvis").lower()
+        
+        def on_transcription(text: str):
+            text = text.strip()
+            if not text:
+                return
+                
+            # Check wake word on transcribed text
+            lower_text = text.lower()
+            # Handle cases like "Jarvis, open notepad" or "Jarvis open notepad"
+            if not lower_text.startswith(wake_word):
+                logger.info(f"Ignored (no wake word): {text}")
+                return
+                
+            # Strip the wake word
+            command = text[len(wake_word):].strip()
+            # Strip leading punctuation if present
+            while command and command[0] in ".,;:!?- ":
+                command = command[1:].strip()
+                
+            if not command:
+                return
+                
+            if args.dry_run:
+                cmd = orch.brain.parse(command)
+                intent_str = str(cmd.intent.value) if hasattr(cmd.intent, "value") else str(cmd.intent)
+                target_str = str(cmd.target.value) if hasattr(cmd.target, "value") else str(cmd.target)
+                print(json.dumps({
+                    "intent": intent_str,
+                    "target": target_str,
+                    "action": cmd.action,
+                    "parameters": cmd.parameters,
+                    "confidence": cmd.confidence
+                }, indent=2))
+                print(f"WOULD RUN: {cmd.action} on {target_str}")
+            else:
+                orch.process(command)
+
+        pipeline = AudioPipeline(stt_model=stt_model, on_transcription=on_transcription)
+        print(f"Voice mode activated. Listening for '{wake_word}'...")
+        pipeline.run()
 
 if __name__ == "__main__":
     main()

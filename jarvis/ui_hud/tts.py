@@ -43,7 +43,11 @@ class TTSEngine:
         backend: Optional[str] = None,
         voice: Optional[str] = None,
     ) -> None:
-        self.backend: str = backend or cfg.get("tts.backend", default="pyttsx3")
+        tts_engine = cfg.get("tts.tts_engine", default="offline")
+        if not backend:
+            backend = "edge_tts" if tts_engine == "edge" else "pyttsx3"
+            
+        self.backend: str = backend
         self.voice: str = voice or cfg.get("tts.voice", default="en-US-GuyNeural")
         self.rate: str = cfg.get("tts.rate", default="+0%")
         self.volume: str = cfg.get("tts.volume", default="+0%")

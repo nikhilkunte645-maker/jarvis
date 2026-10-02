@@ -14,7 +14,7 @@ jarvis:
 audio:
   sample_rate: 16000
   channels: 1
-  chunk_size: 1024
+  chunk_size: 512                  # must match Silero VAD window (512 @ 16 kHz = 32 ms)
   device_index: null               # null = system default microphone
 
   # Wake-word settings
@@ -29,6 +29,7 @@ audio:
     enabled: true
     backend: "webrtcvad"           # webrtcvad | silero | none
     aggressiveness: 2              # webrtcvad: 0-3
+    threshold: 0.3                 # Silero VAD score threshold (0.0-1.0); lower = more sensitive
     silence_timeout_ms: 800        # ms of silence before end-of-speech
 
   # STT (Speech-to-Text)
@@ -92,7 +93,7 @@ phone:
 # TTS / Voice Feedback
 # ──────────────────────────────────────────────
 tts:
-  backend: "edge_tts"              # edge_tts | piper | pyttsx3 | none
+  tts_engine: "offline"            # edge | offline
   voice: "en-US-GuyNeural"         # edge-tts voice name
   rate: "+0%"
   volume: "+0%"

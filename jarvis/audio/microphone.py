@@ -14,9 +14,10 @@ class MicrophoneStream:
     Captures raw audio from the default microphone and yields chunks.
     """
 
-    def __init__(self, sample_rate: int = 16000, chunk_size: int = 512):
+    def __init__(self, sample_rate: int = 16000, chunk_size: int = 512, device_index=None):
         self.sample_rate = sample_rate
         self.chunk_size = chunk_size
+        self.device_index = device_index
         self._queue: queue.Queue[bytes] = queue.Queue()
         self._is_running = False
         self._stream = None
@@ -29,13 +30,14 @@ class MicrophoneStream:
 
     def start(self) -> None:
         """Starts the audio stream."""
-        logger.info(f"Starting microphone stream ({self.sample_rate}Hz)...")
+        logger.info(f"Starting microphone stream ({self.sample_rate}Hz, device={self.device_index})...")
         self._is_running = True
         self._stream = sd.RawInputStream(
             samplerate=self.sample_rate,
             blocksize=self.chunk_size,
             dtype='int16',
             channels=1,
+            device=self.device_index,
             callback=self._callback
         )
         self._stream.start()
